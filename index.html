@@ -176,7 +176,7 @@
         <h2>Interaktiver Netzplan</h2>
       </div>
       <div id="canvasWrap">
-        <svg id="canvas" viewBox="0 0 1200 780" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <svg id="canvas" viewBox="0 0 1200 780" xmlns="http://www.w3.org/2000/svg">
           <defs>
             <g id="icon-switch"><rect x="-25" y="-15" width="50" height="30" rx="4" fill="#e0f2fe" stroke="#0ea5e9" stroke-width="1.5"/><path d="M-15 -5 L-5 -5 M-10 -9 L-5 -5 L-10 -1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M-15 5 L-5 5 M-10 9 L-5 5 L-10 1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(20)"/><path d="M15 -5 L5 -5 M10 -9 L5 -5 L10 -1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(-20)"/><path d="M15 5 L5 5 M10 9 L5 5 L10 1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
             <g id="icon-firewall"><path d="M-28 -20 H28 V20 H-28Z" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/><path d="M-28 10 H28 M-28 0 H28 M-28 -10 H28 M0 -20 V-10 M-14 -10 V0 M14 -10 V0 M-28 0 V10 M-14 10 V20 M14 10 V20 M0 0V10" stroke="#fca5a5" stroke-width="1.5" stroke-linecap="round"/></g>
@@ -257,10 +257,22 @@
       <div class="action-row"><button id="saveV">Speichern</button><button id="delV" class="ghost danger">Löschen</button></div>
       <div class="action-row"><button id="cancelV" class="ghost">Abbrechen</button></div>`;
     document.getElementById('saveV').onclick = ()=>{ v.name=document.getElementById('vname').value; v.subnet=document.getElementById('vsub').value; v.gw=document.getElementById('vgw').value; v.dhcp=document.getElementById('vdhcp').value; renderVlans(); clearSelection(); };
-    document.getElementById('delV').onclick = ()=>{ 
-        state.vlans = state.vlans.filter(vlan => vlan.id !== id);
-        renderVlans();
-        clearSelection();
+    document.getElementById('delV').onclick = ()=>{
+      const affectedNodes = state.nodes.filter(n => n.type === 'switch' && n.ports && n.ports.some(p => p.vlan == id));
+      if (affectedNodes.length > 0) {
+        const deviceLabels = affectedNodes.map(n => n.label).join(', ');
+        if (!confirm(`WARNUNG: VLAN ${id} wird von folgenden Geräten verwendet: ${deviceLabels}. Ports werden auf VLAN 1 zurückgesetzt. Fortfahren?`)) {
+          return;
+        }
+        affectedNodes.forEach(n => {
+          n.ports.forEach(p => {
+            if (p.vlan == id) p.vlan = 1;
+          });
+        });
+      }
+      state.vlans = state.vlans.filter(vlan => vlan.id !== id);
+      renderVlans();
+      clearSelection();
     };
     document.getElementById('cancelV').onclick = ()=> clearSelection();
   }
@@ -322,7 +334,7 @@
       g.style.cursor = 'move';
 
       const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
-      use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', `#icon-${n.type || 'server'}`);
+      use.setAttribute('href', `#icon-${n.type || 'server'}`);
       use.classList.add('icon');
       g.appendChild(use);
 
@@ -472,19 +484,27 @@
     const sourceNode = state.connectSource;
     if(sourceNode.id === targetNode.id){ state.connectSource = null; draw(); return; }
 
+    // Check for free ports BEFORE creating the link
+    const nodesToConnect = [sourceNode, targetNode];
+    for (const node of nodesToConnect) {
+      if (node.type === 'switch') {
+        const freePort = node.ports.find(p => !p.connectedTo);
+        if (!freePort) {
+          alert(`Verbindung fehlgeschlagen: Switch "${node.label}" hat keine freien Ports mehr.`);
+          return; // Abort connection
+        }
+      }
+    }
+
     const linkId = 'l'+(Date.now()).toString(36).slice(-6);
     const newLink = {id:linkId, from:sourceNode.id, to:targetNode.id, type:'Kupfer', speed: '1G'};
     
-    // Auto-assign ports if nodes are switches
-    [sourceNode, targetNode].forEach(node => {
+    // Auto-assign ports - we know they exist
+    nodesToConnect.forEach(node => {
         if(node.type === 'switch') {
             const freePort = node.ports.find(p => !p.connectedTo);
-            if(freePort) {
-                freePort.connectedTo = (node === sourceNode) ? targetNode.id : sourceNode.id;
-                freePort.linkId = linkId;
-            } else {
-                console.warn(`Kein freier Port auf Switch ${node.label}`);
-            }
+            freePort.connectedTo = (node === sourceNode) ? targetNode.id : sourceNode.id;
+            freePort.linkId = linkId;
         }
     });
 
@@ -529,11 +549,26 @@
   document.getElementById('exportPNG').onclick = ()=>{ const serializer = new XMLSerializer(); const source = serializer.serializeToString(svg); const img = new Image(); const svgBlob = new Blob([source],{type:'image/svg+xml;charset=utf-8'}); const url = URL.createObjectURL(svgBlob); img.onload = ()=>{ const canvas = document.createElement('canvas'); const bounds = svg.getBBox(); canvas.width = bounds.width + 40; canvas.height = bounds.height + 40; const ctx = canvas.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,20,20); const a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = 'netzplan.png'; a.click(); URL.revokeObjectURL(url); }; img.src = url; };
   document.getElementById('exportJSON').onclick = ()=>{ const data = JSON.stringify(state, null, 2); const blob = new Blob([data],{type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='netzplan_pro.json'; a.click(); URL.revokeObjectURL(url); };
   document.getElementById('importJSON').onclick = ()=>{ document.getElementById('fileInput').click(); };
-  document.getElementById('fileInput').onchange = function(e){ const f=this.files[0]; if(!f) return; const r=new FileReader(); r.onload = ()=>{ try{ state = JSON.parse(r.result); draw(); }catch(err){ console.error('Fehler beim Parsen: '+err.message) } }; r.readAsText(f); };
-  document.getElementById('saveLS').onclick = ()=>{ localStorage.setItem('netzplan_pro_v1', JSON.stringify(state)); };
+  document.getElementById('fileInput').onchange = function(e){ const f=this.files[0]; if(!f) return; const r=new FileReader(); r.onload = ()=>{ try{ state = JSON.parse(r.result); draw(); }catch(err){ alert('Fehler: Die JSON-Datei scheint ungültig oder beschädigt zu sein.'); console.error('Fehler beim Parsen: '+err.message) } }; r.readAsText(f); };
+  document.getElementById('saveLS').onclick = ()=>{ localStorage.setItem('netzplan_pro_v1', JSON.stringify(state)); alert('Plan im Browser-Speicher gesichert!'); };
   document.getElementById('loadLS').onclick = ()=>{ const s=localStorage.getItem('netzplan_pro_v1'); if(!s){ return;} try { state = JSON.parse(s); draw(); } catch(e) { console.error("Konnte Daten nicht laden."); } };
   document.getElementById('resetBtn').onclick = ()=>{ createDefaultTopology(); };
-  document.getElementById('addVlan').onclick = ()=>{ const id = parseInt(prompt('VLAN ID (eine Zahl):'), 10); if(!id || isNaN(id)) return; const name = prompt('Name:','NEUES VLAN'); state.vlans.push({id,name:name||'VLAN '+id,subnet:'10.0.'+id+'.0/24',gw:'',dhcp:''}); renderVlans(); };
+  document.getElementById('addVlan').onclick = ()=>{
+    const idStr = prompt('VLAN ID (eine Zahl):');
+    if (!idStr) return; // User cancelled
+    const id = parseInt(idStr, 10);
+    if (isNaN(id) || id <= 0) {
+      alert('Fehler: Bitte geben Sie eine gültige, positive VLAN ID ein.');
+      return;
+    }
+    if (state.vlans.some(v => v.id === id)) {
+      alert(`Fehler: VLAN ID ${id} existiert bereits.`);
+      return;
+    }
+    const name = prompt('Name:', 'NEUES VLAN');
+    state.vlans.push({ id, name: name || 'VLAN ' + id, subnet: '10.0.' + id + '.0/24', gw: '', dhcp: '' });
+    renderVlans();
+  };
   svg.addEventListener('click', (e) => { if(e.target.id === 'canvas') clearSelection(); });
 
   // --- Initial Load ---

@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interaktiver Netzplan — Pro</title>
+  <style>
+    :root {
+      --bg: #f7fafc; /* Hintergrundfarbe der Seite */
+      --card: #fff; /* Farbe für Panels und Karten */
+      --accent: #1f6feb; /* Akzentfarbe für Buttons etc. */
+      --muted: #6b7280; /* Farbe für gedämpften Text */
+      --border-color: #e5e7eb;
+      --icon-stroke: #64748b;
+      --icon-fill: #f1f5f9;
+      --danger: #dc2626;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: #111827;
+    }
+    .wrap {
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+      gap: 12px;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+    .panel {
+      background: var(--card);
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .left { width: 280px; flex-shrink: 0; }
+    .center { flex: 1; display: flex; flex-direction: column; }
+    .right { width: 380px; flex-shrink: 0; overflow-y: auto; }
+    h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    hr { border: none; height: 1px; background-color: var(--border-color); margin: 4px 0; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: 0;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 0.2s;
+    }
+    button:hover { background: #1c64d6; }
+    button.ghost {
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid rgba(31, 111, 235, 0.2);
+    }
+    button.ghost:hover { background: rgba(31, 111, 235, 0.05); }
+    button.danger {
+      background: transparent;
+      color: var(--danger);
+      border-color: rgba(220, 38, 38, 0.2);
+    }
+    button.danger:hover { background: rgba(220, 38, 38, 0.05); }
+    .tool { display: flex; flex-direction: column; gap: 8px; }
+    label { font-size: 12px; color: var(--muted); font-weight: 500; }
+    input[type=text], select, textarea {
+      width: 100%;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      font-size: 13px;
+      box-sizing: border-box;
+    }
+    textarea { resize: vertical; }
+    #canvasWrap {
+      background: #fff;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      flex: 1;
+      display: flex;
+      padding: 8px;
+    }
+    svg {
+      background-image:
+        linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      border-radius: 6px;
+      width: 100%;
+      height: 100%;
+    }
+    .mini { font-size: 11px; color: var(--muted); }
+    .list { max-height: 220px; overflow: auto; padding-right: 6px; }
+    .vlan-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #f1f5f9;
+      margin-bottom: 6px;
+    }
+    .note { font-size: 12px; color: var(--muted); }
+    .action-row { display: flex; gap: 8px; }
+    .small { font-size: 12px; padding: 6px 10px; }
+    .node .icon { pointer-events: none; }
+    .link { cursor: pointer; transition: stroke 0.2s; }
+    .link:hover { stroke: #1f6feb !important; }
+    .link.selected { stroke: #d33 !important; stroke-width: 3; }
+    
+    /* Styles for Port Management */
+    .port-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-top: 8px; }
+    .port-item-header, .port-item { display: grid; grid-template-columns: 30px 1fr 1.5fr; gap: 8px; padding: 4px 8px; border-bottom: 1px solid #f1f5f9; font-size: 11px; align-items: center; }
+    .port-item-header { font-weight: 600; background-color: #f8fafc; }
+    .port-item:last-child { border-bottom: none; }
+    .port-item.connected { font-weight: 500; background-color: #eff6ff; }
+    .port-item input, .port-item select { padding: 4px; font-size: 11px; width: 100%; box-sizing: border-box; }
+
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel left">
+      <h2>Toolbox</h2>
+      <div class="tool">
+        <label>Element hinzufügen</label>
+        <select id="nodeType">
+          <option value="switch">Switch</option>
+          <option value="firewall">Firewall/Router</option>
+          <option value="server">Server / VM</option>
+          <option value="storage">Storage (NAS)</option>
+          <option value="cloud">Internet / ISP</option>
+          <option value="workstation">Workstation</option>
+        </select>
+        <button id="addNode">Hinzufügen</button>
+      </div>
+      <div class="tool">
+        <label>Verbindung</label>
+        <div class="action-row">
+          <button id="connectMode" class="small">Verbinden: AUS</button>
+          <button id="clearSelection" class="small ghost">Abbrechen</button>
+        </div>
+      </div>
+      <hr/>
+      <div class="tool">
+        <label>Aktionen</label>
+        <div class="action-row">
+          <button id="exportPNG" class="small">Als PNG</button>
+          <button id="exportSVG" class="small ghost">Als SVG</button>
+        </div>
+        <div class="action-row">
+          <button id="exportJSON" class="small">Export JSON</button>
+          <button id="importJSON" class="small ghost">Import JSON</button>
+          <input id="fileInput" type="file" accept="application/json" style="display:none" />
+        </div>
+      </div>
+      <hr/>
+      <div class="tool">
+        <label>Speichern & Laden</label>
+        <div class="action-row">
+          <button id="saveLS" class="small">Speichern</button>
+          <button id="loadLS" class="small ghost">Laden</button>
+        </div>
+        <div class="mini">Speichert den aktuellen Stand im Browser.</div>
+      </div>
+    </div>
+
+    <div class="panel center">
+      <div style="display:flex;justify-content:space-between;align-items:center; padding-bottom: 8px;">
+        <h2>Interaktiver Netzplan</h2>
+      </div>
+      <div id="canvasWrap">
+        <svg id="canvas" viewBox="0 0 1200 780" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+          <defs>
+            <g id="icon-switch"><rect x="-25" y="-15" width="50" height="30" rx="4" fill="#e0f2fe" stroke="#0ea5e9" stroke-width="1.5"/><path d="M-15 -5 L-5 -5 M-10 -9 L-5 -5 L-10 -1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M-15 5 L-5 5 M-10 9 L-5 5 L-10 1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(20)"/><path d="M15 -5 L5 -5 M10 -9 L5 -5 L10 -1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(-20)"/><path d="M15 5 L5 5 M10 9 L5 5 L10 1" stroke="#0ea5e9" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></g>
+            <g id="icon-firewall"><path d="M-28 -20 H28 V20 H-28Z" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/><path d="M-28 10 H28 M-28 0 H28 M-28 -10 H28 M0 -20 V-10 M-14 -10 V0 M14 -10 V0 M-28 0 V10 M-14 10 V20 M14 10 V20 M0 0V10" stroke="#fca5a5" stroke-width="1.5" stroke-linecap="round"/></g>
+            <g id="icon-server"><rect x="-26" y="-16" width="52" height="32" rx="3" fill="var(--icon-fill)" stroke="var(--icon-stroke)" stroke-width="1.5"/><path d="M-20 -8 H14 M-20 0 H14 M-20 8 H14" stroke="#94a3b8" stroke-width="1"/><circle cx="20" cy="-10" r="1.5" fill="#22c55e"/><circle cx="20" cy="-4" r="1.5" fill="#f59e0b"/></g>
+            <g id="icon-storage"><ellipse cx="0" cy="10" rx="24" ry="8" fill="var(--icon-fill)" stroke="var(--icon-stroke)" stroke-width="1.5"/><path d="M-24 10 V-8 C-24 -16 24 -16 24 -8 V10" stroke="var(--icon-stroke)" stroke-width="1.5" fill="none"/><ellipse cx="0" cy="-8" rx="24" ry="8" fill="#e2e8f0" stroke="var(--icon-stroke)" stroke-width="1.5"/><ellipse cx="0" cy="1" rx="24" ry="8" fill="#e2e8f0" stroke="var(--icon-stroke)" stroke-width="1.5"/></g>
+            <g id="icon-cloud"><path d="M-25 15 C-40 15 -40 -10 -25 -10 C-15 -25 15 -25 20 -10 C35 -10 35 15 20 15 Z" fill="#e0f2fe" stroke="#0ea5e9" stroke-width="1.5"/></g>
+            <g id="icon-workstation"><rect x="-24" y="-20" width="48" height="30" rx="4" fill="var(--icon-fill)" stroke="var(--icon-stroke)" stroke-width="1.5"/><path d="M-10 10 L10 10 L 0 20 Z" fill="#d1d5db"/><path d="M-16 20 H16" stroke="var(--icon-stroke)" stroke-width="2" stroke-linecap="round"/></g>
+          </defs>
+          <g id="links"></g>
+          <g id="nodes"></g>
+          <text id="tooltip" x="0" y="0" visibility="hidden" font-size="12" pointer-events="none" fill="#1e293b" style="background: white;"></text>
+        </svg>
+      </div>
+      <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+        <div class="note">Klicken & Ziehen zum Verschieben. Im "Verbinden"-Modus: Quelle, dann Ziel klicken.</div>
+        <button id="resetBtn" class="small ghost">Zurücksetzen</button>
+      </div>
+    </div>
+
+    <div class="panel right">
+      <h2>Ausgewähltes Element</h2>
+      <div id="properties" class="tool">
+        <div class="note">Kein Element ausgewählt. Klicke auf ein Symbol im Diagramm.</div>
+      </div>
+      <hr/>
+      <h2>VLAN & IP Übersicht</h2>
+      <div class="list" id="vlanList"></div>
+      <button id="addVlan" class="small" style="margin-top:8px">VLAN hinzufügen</button>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const svg = document.getElementById('canvas');
+  const nodesGroup = document.getElementById('nodes');
+  const linksGroup = document.getElementById('links');
+  const properties = document.getElementById('properties');
+  const vlanList = document.getElementById('vlanList');
+  const tooltip = document.getElementById('tooltip');
+
+  let state = {
+    nodes: [],
+    links: [],
+    vlans: [
+      {id:10,name:'MGMT',subnet:'10.0.10.0/24',gw:'10.0.10.1',dhcp:'keine (statisch)'},
+      {id:20,name:'SERVERS',subnet:'10.0.20.0/24',gw:'10.0.20.1',dhcp:'zentral'},
+      {id:80,name:'DMZ',subnet:'10.0.80.0/24',gw:'10.0.80.1',dhcp:'keine (statisch)'},
+      {id:90,name:'BACKUP',subnet:'10.0.90.0/24',gw:'10.0.90.1',dhcp:'keine'},
+    ],
+    connectMode: false,
+    connectSource: null
+  };
+
+  // --- Utility Functions ---
+  function escapeHtml(s){
+    return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  // --- VLAN Management ---
+  function renderVlans(){
+    vlanList.innerHTML=''; state.vlans.forEach(v=>{
+      const div = document.createElement('div'); div.className='vlan-item';
+      div.innerHTML = `<div><strong>VLAN ${v.id}</strong> ${v.name}<div class="mini">${v.subnet}</div></div><button class="small ghost" data-id="${v.id}">...</button>`;
+      vlanList.appendChild(div);
+      div.querySelector('button').onclick = ()=>{ editVlan(v.id); };
+    });
+  }
+
+  function editVlan(id){
+    const v = state.vlans.find(x=>x.id===id); if(!v) return;
+    clearSelection(true);
+    properties.innerHTML = `
+      <h2>VLAN Bearbeiten</h2>
+      <label>Name</label><input id="vname" value="${escapeHtml(v.name)}" />
+      <label>Subnet</label><input id="vsub" value="${escapeHtml(v.subnet)}" />
+      <label>Gateway</label><input id="vgw" value="${escapeHtml(v.gw)}" />
+      <label>DHCP</label><input id="vdhcp" value="${escapeHtml(v.dhcp)}" />
+      <div class="action-row"><button id="saveV">Speichern</button><button id="delV" class="ghost danger">Löschen</button></div>
+      <div class="action-row"><button id="cancelV" class="ghost">Abbrechen</button></div>`;
+    document.getElementById('saveV').onclick = ()=>{ v.name=document.getElementById('vname').value; v.subnet=document.getElementById('vsub').value; v.gw=document.getElementById('vgw').value; v.dhcp=document.getElementById('vdhcp').value; renderVlans(); clearSelection(); };
+    document.getElementById('delV').onclick = ()=>{ 
+        state.vlans = state.vlans.filter(vlan => vlan.id !== id);
+        renderVlans();
+        clearSelection();
+    };
+    document.getElementById('cancelV').onclick = ()=> clearSelection();
+  }
+
+  // --- Node & Link Creation ---
+  function initializeSwitchPorts() {
+      const ports = [];
+      for(let i = 1; i <= 48; i++) {
+          ports.push({ port: i, vlan: 1, description: '', connectedTo: null, linkId: null });
+      }
+      return ports;
+  }
+
+  function createNode(opts){
+    const id = opts && opts.id ? opts.id : 'n'+(Date.now()).toString(36).slice(-6);
+    const node = Object.assign({id, type:'server', x:600, y:390, size:52, label:'Neues Gerät', ip:'', notes:'' }, opts || {});
+    if (node.type === 'switch' && !node.ports) {
+        node.ports = initializeSwitchPorts();
+    }
+    state.nodes.push(node);
+    return node;
+  }
+
+  function createDefaultTopology(){
+    state.nodes=[]; state.links=[]; state.connectSource=null;
+    createNode({id:'internet',type:'cloud',x:600,y:80,label:'Internet (ISP)'});
+    createNode({id:'fw',type:'firewall',x:600,y:180,label:'Firewall / Router'});
+    const coreSwitch = createNode({id:'core',type:'switch',x:600,y:300,label:'Core Switch (L3)',ip:'10.0.10.1'});
+    createNode({id:'distprod',type:'switch',x:350,y:450,label:'Switch-Dist-Prod',ip:'10.0.10.12'});
+    createNode({id:'distlog',type:'switch',x:850,y:450,label:'Switch-Dist-Logistik',ip:'10.0.10.13'});
+    createNode({id:'hyper',type:'server',x:350,y:580,label:'Hypervisor',ip:'10.0.10.2'});
+    createNode({id:'nas',type:'storage',x:600,y:580,label:'NAS / Storage',ip:'10.0.30.10'});
+    createNode({id:'backup',type:'server',x:850,y:580,label:'Backup Server',ip:'10.0.90.10'});
+    createNode({id:'dmz',type:'server',x:900,y:180,label:'DMZ Webserver',ip:'10.0.80.10'});
+    draw();
+  }
+  
+  // --- Drawing ---
+  function draw(){
+    nodesGroup.innerHTML=''; linksGroup.innerHTML='';
+    state.links.forEach(l=>{
+      const a = state.nodes.find(n=>n.id===l.from); const b = state.nodes.find(n=>n.id===l.to);
+      if(!a||!b) return;
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', `M ${a.x} ${a.y} L ${b.x} ${b.y}`);
+      path.setAttribute('stroke','#374151'); path.setAttribute('stroke-width','2'); path.setAttribute('fill','none'); path.setAttribute('class','link');
+      path.dataset.id = l.id;
+      path.addEventListener('click', (ev)=>{ ev.stopPropagation(); selectLink(l); });
+      path.addEventListener('mouseover', (e) => showTooltip(e, l));
+      path.addEventListener('mouseout', hideTooltip);
+      linksGroup.appendChild(path);
+    });
+
+    state.nodes.forEach(n=>{
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      g.classList.add('node');
+      g.setAttribute('data-id', n.id);
+      g.setAttribute('transform',`translate(${n.x},${n.y})`);
+      g.style.cursor = 'move';
+
+      const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+      use.setAttributeNS('http://www.w3.org/1999/xlink', 'href', `#icon-${n.type || 'server'}`);
+      use.classList.add('icon');
+      g.appendChild(use);
+
+      const textLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+      textLabel.setAttribute('x',0); textLabel.setAttribute('y',- (n.size/2) - 12); textLabel.setAttribute('font-size','12'); textLabel.setAttribute('text-anchor','middle'); textLabel.setAttribute('fill','#0f172a');
+      textLabel.textContent = n.label;
+      g.appendChild(textLabel);
+
+      const ipText = document.createElementNS('http://www.w3.org/2000/svg','text');
+      ipText.setAttribute('x',0); ipText.setAttribute('y',(n.size/2) + 20); ipText.setAttribute('font-size','12'); ipText.setAttribute('text-anchor','middle'); ipText.setAttribute('fill','#475569');
+      ipText.textContent = n.ip || '';
+      g.appendChild(ipText);
+      
+      const hitArea = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      hitArea.setAttribute('r', n.size / 2 + 10);
+      hitArea.setAttribute('fill', 'transparent');
+      g.appendChild(hitArea);
+
+      nodesGroup.appendChild(g);
+      g.addEventListener('pointerdown', nodePointerDown);
+      g.addEventListener('click', (e)=>{ e.stopPropagation(); nodeClick(n); });
+    });
+    renderVlans();
+  }
+
+  // --- Interaction & Selection ---
+  let drag = null; let dragOffset = {x:0,y:0};
+  function nodePointerDown(e){ e.stopPropagation(); const g = e.currentTarget; const id = g.getAttribute('data-id'); const n = state.nodes.find(x=>x.id===id); if (!n) return; if (state.connectMode) { handleConnectClick(n); return; } drag = n; const pt = getSVGPoint(e); dragOffset.x = pt.x - n.x; dragOffset.y = pt.y - n.y; svg.setPointerCapture(e.pointerId); svg.addEventListener('pointermove', nodePointerMove); svg.addEventListener('pointerup', nodePointerUp); }
+  function nodePointerMove(e){ if(!drag) return; const pt=getSVGPoint(e); drag.x = Math.round((pt.x - dragOffset.x)/10)*10; drag.y = Math.round((pt.y - dragOffset.y)/10)*10; draw(); }
+  function nodePointerUp(e){ svg.removeEventListener('pointermove', nodePointerMove); svg.removeEventListener('pointerup', nodePointerUp); svg.releasePointerCapture(e.pointerId); drag=null; }
+  function getSVGPoint(evt){ const pt = svg.createSVGPoint(); pt.x = evt.clientX; pt.y = evt.clientY; return pt.matrixTransform(svg.getScreenCTM().inverse()); }
+  function nodeClick(n){ if(state.connectMode){ handleConnectClick(n); return; } selectNode(n); }
+
+  function selectNode(n){
+    clearSelection(true);
+    if(!n){ return; }
+
+    const g = document.querySelector(`g.node[data-id='${n.id}']`);
+    if(g) {
+      const highlight = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      highlight.setAttribute('r', (n.size/2)+10); highlight.setAttribute('fill','none'); highlight.setAttribute('stroke','#1f6feb'); highlight.setAttribute('stroke-width','2.5'); highlight.setAttribute('stroke-dasharray', '4'); highlight.classList.add('selection-highlight');
+      g.insertBefore(highlight, g.firstChild);
+    }
+    
+    properties.innerHTML = `<h2>Element bearbeiten</h2>
+      <label>Label</label><input id="selLabel" value="${escapeHtml(n.label||'')}">
+      <label>IP / Notation</label><input id="selIP" value="${escapeHtml(n.ip||'')}">
+      <label>Notizen</label><textarea id="selNotes" rows="3">${escapeHtml(n.notes||'')}</textarea>
+      <div id="extra-properties"></div>
+      <div class="action-row"><button id="saveNode">Speichern</button><button id="delNode" class="ghost danger">Löschen</button></div>`;
+    
+    if (n.type === 'switch') {
+        const extra = document.getElementById('extra-properties');
+        let vlanOptions = state.vlans.map(v => `<option value="${v.id}">${v.id} - ${escapeHtml(v.name)}</option>`).join('');
+        let portHTML = `<label style="margin-top: 8px;">Port Konfiguration (48 Ports)</label><div class="port-list"><div class="port-item-header"><div>#</div><div>VLAN</div><div>Beschreibung</div></div>`;
+        n.ports.forEach(p => {
+            const isConnected = p.connectedTo ? 'connected' : '';
+            portHTML += `<div class="port-item ${isConnected}" data-port="${p.port}">
+                <div>${p.port}</div>
+                <div><select class="port-vlan">${vlanOptions}</select></div>
+                <div><input type="text" class="port-desc" value="${escapeHtml(p.description)}" placeholder="${isConnected ? 'Verbunden mit ' + p.connectedTo : '-'}"></div>
+            </div>`;
+        });
+        portHTML += '</div>';
+        extra.innerHTML = portHTML;
+        // Set selected VLAN for each port
+        n.ports.forEach(p => {
+           const portRow = extra.querySelector(`.port-item[data-port='${p.port}']`);
+           if(portRow) portRow.querySelector('.port-vlan').value = p.vlan;
+        });
+    }
+
+    document.getElementById('saveNode').onclick = ()=>{
+      n.label = document.getElementById('selLabel').value;
+      n.notes = document.getElementById('selNotes').value;
+      n.ip = document.getElementById('selIP').value;
+      if (n.type === 'switch') {
+          const portRows = properties.querySelectorAll('.port-item');
+          portRows.forEach((row, i) => {
+              n.ports[i].vlan = row.querySelector('.port-vlan').value;
+              n.ports[i].description = row.querySelector('.port-desc').value;
+          });
+      }
+      draw();
+      selectNode(n);
+    };
+    document.getElementById('delNode').onclick = ()=>{
+      if (n.type === 'switch') {
+          n.ports.forEach(p => { if(p.linkId) removeLink(p.linkId, true); });
+      } else {
+          state.links.filter(l => l.from === n.id || l.to === n.id).forEach(l => removeLink(l.id, true));
+      }
+      state.nodes = state.nodes.filter(x=>x.id!==n.id);
+      clearSelection();
+    };
+  }
+  
+  function selectLink(link) {
+    clearSelection(true);
+    const path = document.querySelector(`path.link[data-id='${link.id}']`);
+    if (path) path.classList.add('selected');
+    
+    properties.innerHTML = `
+      <h2>Verbindung bearbeiten</h2>
+      <div class="note">Von: ${escapeHtml(link.from)}<br>Nach: ${escapeHtml(link.to)}</div>
+      <label>Typ</label>
+      <select id="linkType"><option value="Kupfer">Kupfer</option><option value="LWL">LWL</option></select>
+      <label>Speed</label><input id="linkSpeed" value="${escapeHtml(link.speed||'1G')}" />
+      <div class="action-row" style="margin-top:8px">
+        <button id="saveLink">Speichern</button>
+        <button id="delLink" class="ghost danger">Löschen</button>
+      </div>`;
+    document.getElementById('linkType').value = link.type || 'Kupfer';
+    document.getElementById('saveLink').onclick = () => {
+        link.type = document.getElementById('linkType').value;
+        link.speed = document.getElementById('linkSpeed').value;
+        clearSelection();
+    };
+    document.getElementById('delLink').onclick = () => removeLink(link.id);
+  }
+
+  function removeLink(linkId, silent = false) {
+      const link = state.links.find(l => l.id === linkId);
+      if(!link) return;
+      
+      [link.from, link.to].forEach(nodeId => {
+          const node = state.nodes.find(n => n.id === nodeId);
+          if (node && node.type === 'switch') {
+              const port = node.ports.find(p => p.linkId === linkId);
+              if (port) {
+                  port.connectedTo = null;
+                  port.linkId = null;
+              }
+          }
+      });
+      state.links = state.links.filter(l=>l.id!==linkId);
+      if(!silent) clearSelection();
+  }
+  
+  // --- Connection Logic ---
+  function handleConnectClick(targetNode){
+    if(!state.connectSource){
+      state.connectSource = targetNode;
+      selectNode(targetNode);
+      return;
+    }
+    const sourceNode = state.connectSource;
+    if(sourceNode.id === targetNode.id){ state.connectSource = null; draw(); return; }
+
+    const linkId = 'l'+(Date.now()).toString(36).slice(-6);
+    const newLink = {id:linkId, from:sourceNode.id, to:targetNode.id, type:'Kupfer', speed: '1G'};
+    
+    // Auto-assign ports if nodes are switches
+    [sourceNode, targetNode].forEach(node => {
+        if(node.type === 'switch') {
+            const freePort = node.ports.find(p => !p.connectedTo);
+            if(freePort) {
+                freePort.connectedTo = (node === sourceNode) ? targetNode.id : sourceNode.id;
+                freePort.linkId = linkId;
+            } else {
+                console.warn(`Kein freier Port auf Switch ${node.label}`);
+            }
+        }
+    });
+
+    state.links.push(newLink);
+    state.connectSource = null;
+    toggleConnectMode(false);
+    draw();
+  }
+  
+  function clearSelection(silent = false) {
+    if(!silent) properties.innerHTML = '<div class="note">Kein Element ausgewählt.</div>';
+    state.connectSource = null;
+    draw();
+  }
+
+  function toggleConnectMode(forceState) {
+    state.connectMode = (forceState !== undefined) ? forceState : !state.connectMode;
+    state.connectSource=null;
+    const btn = document.getElementById('connectMode');
+    btn.textContent = state.connectMode? 'Verbinden: AN' : 'Verbinden: AUS';
+    btn.style.background = state.connectMode ? '#f59e0b' : '';
+    if (!state.connectMode) clearSelection();
+  }
+
+  // --- Tooltip ---
+  function showTooltip(evt, link) {
+    const pt = getSVGPoint(evt);
+    tooltip.setAttribute('x', pt.x + 10);
+    tooltip.setAttribute('y', pt.y + 5);
+    tooltip.textContent = `${link.type || 'Kupfer'} - ${link.speed || '1G'}`;
+    tooltip.setAttribute('visibility', 'visible');
+  }
+  function hideTooltip() {
+    tooltip.setAttribute('visibility', 'hidden');
+  }
+  
+  // --- Event Listeners ---
+  document.getElementById('connectMode').onclick = () => toggleConnectMode();
+  document.getElementById('clearSelection').onclick = () => { toggleConnectMode(false); clearSelection(); };
+  document.getElementById('addNode').onclick = ()=>{ const type = document.getElementById('nodeType').value; const labels = {switch:'Neuer Switch',firewall:'Neue Firewall',server:'Neuer Server',storage:'Neuer Storage',cloud:'Internet',workstation:'Workstation'}; const newNode = createNode({type:type,label:labels[type]}); draw(); selectNode(newNode); };
+  document.getElementById('exportSVG').onclick = ()=>{ const serializer = new XMLSerializer(); const source = serializer.serializeToString(svg); const blob = new Blob([source],{type:'image/svg+xml;charset=utf-8'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='netzplan.svg'; a.click(); URL.revokeObjectURL(url); };
+  document.getElementById('exportPNG').onclick = ()=>{ const serializer = new XMLSerializer(); const source = serializer.serializeToString(svg); const img = new Image(); const svgBlob = new Blob([source],{type:'image/svg+xml;charset=utf-8'}); const url = URL.createObjectURL(svgBlob); img.onload = ()=>{ const canvas = document.createElement('canvas'); const bounds = svg.getBBox(); canvas.width = bounds.width + 40; canvas.height = bounds.height + 40; const ctx = canvas.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(img,20,20); const a = document.createElement('a'); a.href = canvas.toDataURL('image/png'); a.download = 'netzplan.png'; a.click(); URL.revokeObjectURL(url); }; img.src = url; };
+  document.getElementById('exportJSON').onclick = ()=>{ const data = JSON.stringify(state, null, 2); const blob = new Blob([data],{type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href=url; a.download='netzplan_pro.json'; a.click(); URL.revokeObjectURL(url); };
+  document.getElementById('importJSON').onclick = ()=>{ document.getElementById('fileInput').click(); };
+  document.getElementById('fileInput').onchange = function(e){ const f=this.files[0]; if(!f) return; const r=new FileReader(); r.onload = ()=>{ try{ state = JSON.parse(r.result); draw(); }catch(err){ console.error('Fehler beim Parsen: '+err.message) } }; r.readAsText(f); };
+  document.getElementById('saveLS').onclick = ()=>{ localStorage.setItem('netzplan_pro_v1', JSON.stringify(state)); };
+  document.getElementById('loadLS').onclick = ()=>{ const s=localStorage.getItem('netzplan_pro_v1'); if(!s){ return;} try { state = JSON.parse(s); draw(); } catch(e) { console.error("Konnte Daten nicht laden."); } };
+  document.getElementById('resetBtn').onclick = ()=>{ createDefaultTopology(); };
+  document.getElementById('addVlan').onclick = ()=>{ const id = parseInt(prompt('VLAN ID (eine Zahl):'), 10); if(!id || isNaN(id)) return; const name = prompt('Name:','NEUES VLAN'); state.vlans.push({id,name:name||'VLAN '+id,subnet:'10.0.'+id+'.0/24',gw:'',dhcp:''}); renderVlans(); };
+  svg.addEventListener('click', (e) => { if(e.target.id === 'canvas') clearSelection(); });
+
+  // --- Initial Load ---
+  createDefaultTopology();
+
+})();
+</script>
+</body>
+</html>
+
+

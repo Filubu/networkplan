@@ -369,7 +369,8 @@
   function nodeClick(n){ if(state.connectMode){ handleConnectClick(n); return; } selectNode(n); }
 
   function selectNode(n){
-    clearSelection(true);
+    // Manually remove previous highlights instead of calling clearSelection() which triggers a full redraw
+    document.querySelectorAll('.selection-highlight').forEach(el => el.remove());
     if(!n){ return; }
 
     const g = document.querySelector(`g.node[data-id='${n.id}']`);
@@ -414,12 +415,24 @@
       if (n.type === 'switch') {
           const portRows = properties.querySelectorAll('.port-item');
           portRows.forEach((row, i) => {
-              n.ports[i].vlan = row.querySelector('.port-vlan').value;
+              n.ports[i].vlan = parseInt(row.querySelector('.port-vlan').value, 10);
               n.ports[i].description = row.querySelector('.port-desc').value;
           });
       }
-      draw();
-      selectNode(n);
+      draw(); // Redraws everything, which removes the selection highlight.
+
+      // Manually re-apply the selection highlight to the node
+      const g = document.querySelector(`g.node[data-id='${n.id}']`);
+      if(g) {
+        const highlight = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        highlight.setAttribute('r', (n.size/2)+10);
+        highlight.setAttribute('fill','none');
+        highlight.setAttribute('stroke','#1f6feb');
+        highlight.setAttribute('stroke-width','2.5');
+        highlight.setAttribute('stroke-dasharray', '4');
+        highlight.classList.add('selection-highlight');
+        g.insertBefore(highlight, g.firstChild);
+      }
     };
     document.getElementById('delNode').onclick = ()=>{
       if (n.type === 'switch') {
@@ -572,8 +585,18 @@
   svg.addEventListener('click', (e) => { if(e.target.id === 'canvas') clearSelection(); });
 
   // --- Initial Load ---
-  createDefaultTopology();
-
+  const savedState = localStorage.getItem('netzplan_pro_v1');
+  if (savedState) {
+    try {
+      state = JSON.parse(savedState);
+      draw();
+    } catch(e) {
+      console.error("Gespeicherte Daten konnten nicht geladen werden, starte mit Standard-Topologie.");
+      createDefaultTopology();
+    }
+  } else {
+    createDefaultTopology();
+  }
 })();
 </script>
 </body>
